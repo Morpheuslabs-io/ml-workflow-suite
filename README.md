@@ -1,12 +1,15 @@
 <!-- markdownlint-disable MD030 -->
 
-# Outerbridge - Automate Web3 and Web2 applications
+# ML SEED Workflowas - A Morpheus Labs solution to Automate Web3 and Web2 applications
 
-Outerbridge is a low code/no code workflow automation application, focusing on integrating both on-chain and off-chain applications. The project is licensed under [Apache License Version 2.0](LICENSE.md), source available and free to self-host.
+Inspired from Outerbridge opensource,  the ML SEED Workflowas is the version optimized for enterprize use intgrated with Morpheus Labs SEED for code/no code workflow automation Web3 applications and not only, focusing on integrating both on-chain and off-chain applications.
 
-![Outerbridge](./assets/outerbridge_brand.png)
+![ML SEED Workflows](m-wf.png)
 
-![Outerbridge Screenshot](./assets/screenshot_outerbridge.jpg)
+![ML SEED Wrokflow Landing](m-wf-fcs.png)
+
+
+# README OF ORIGINGAL PROJECT ---> TO BE UPDATED GRADUALLY
 
 ## 💡Why another workflow automation tool?
 
