@@ -1,4 +1,4 @@
-import logo from 'assets/images/outerbridge_brand.png'
+import logo from 'assets/images/ml_seed_brand.png'
 
 // ==============================|| LOGO ||============================== //
 

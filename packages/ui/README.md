@@ -4,7 +4,7 @@
 
 React frontend ui for Outerbridge.
 
-![Outerbridge](https://raw.githubusercontent.com/Outerbridgeio/Outerbridge/master/assets/outerbridge_brand.png)
+![Outerbridge](https://raw.githubusercontent.com/Outerbridgeio/Outerbridge/master/assets/ml_seed_brand.png)
 
 Install:
 

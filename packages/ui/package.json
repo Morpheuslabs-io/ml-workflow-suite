@@ -1,11 +1,11 @@
 {
-    "name": "outerbridge-ui",
-    "version": "1.0.7",
+    "name": "ml-workflow-suite-ui",
+    "version": "1.0.0",
     "license": "SEE LICENSE IN LICENSE.md",
-    "homepage": "https://outerbridge.io",
+    "homepage": "https://morpheuslabs.io",
     "author": {
-        "name": "Henry Heng",
-        "email": "henryheng@outerbridge.io"
+        "name": "Dorel Burcea",
+        "email": "dorel@morpheuslabs.io"
     },
     "dependencies": {
         "@emotion/cache": "^11.4.0",
