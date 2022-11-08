@@ -161,8 +161,8 @@ export default function componentStyleOverrides(theme) {
         MuiAvatar: {
             styleOverrides: {
                 root: {
-                    color: theme.colors?.primaryDark,
-                    background: theme.colors?.primary200
+                    color: theme.colors?.primaryLight,
+                    background: theme.colors?.menuSelectedBack
                 }
             }
         },
