@@ -15,13 +15,9 @@ The ML SEED Workflowas is the version optimized for enterprize use intgrated wit
 
 There are many awesome automation tools out there, however there isn't one that has the built-in logic of interacting/consuming information from blockchains. Hence, Outerbridge is created to allow people building workflows involving on-chain and off-chain applications, with simple drag and drop interface.
 
-## 💻 Demo
-
--   [Public demo](https://demo.outerbridge.io) version of Outerbridge.
-
--   Watch [Outerbridge Quickstart Demo](https://www.youtube.com/watch?v=x-AfrkKvZ4M) on Youtube (4mins)
-
 ## ⚡Quick Start
+
+Watch [Outerbridge Quickstart Demo](https://www.youtube.com/watch?v=x-AfrkKvZ4M) on Youtube (4mins)
 
 1. Install MongoDB [locally](https://www.mongodb.com/docs/manual/administration/install-community/) OR follow the guide of using MongoDB Atlas [here](https://docs.outerbridge.io/get-started#mongodb-atlas)
 2. Install Outerbridge
@@ -81,25 +77,19 @@ Outerbridge has 3 different modules in a single mono repository.
     cd Outerbridge
     ```
 
-3. Install `lerna`, `husky` and `rimraf` :
+3. Install all dependencies of all modules:
 
     ```bash
-    yarn setup
+    yarn install
     ```
 
-4. Install all dependencies of all modules and link them together:
-
-    ```bash
-    yarn bootstrap
-    ```
-
-5. Build all the code:
+4. Build all the code:
 
     ```bash
     yarn build
     ```
 
-6. Start the app:
+5. Start the app:
 
     ```bash
     yarn start
@@ -107,7 +97,7 @@ Outerbridge has 3 different modules in a single mono repository.
 
     You can now access the app on [http://localhost:3000](http://localhost:3000)
 
-7. For development build:
+6. For development build:
 
     ```bash
     yarn dev
@@ -119,7 +109,11 @@ Outerbridge has 3 different modules in a single mono repository.
 
 Official Outerbridge docs can be found under: [https://docs.outerbridge.io](https://docs.outerbridge.io)
 
-## 🌐 Host
+## 💻 Cloud Hosted
+
+-   [Cloud Hosted](https://app.outerbridge.io) version of Outerbridge.
+
+## 🌐 Self Host
 
 -   Digital Ocean Droplet: [Setup guide](https://gist.github.com/HenryHengZJ/93210d43d655b4172ee50794ce473b62)
 -   AWS EC2: [Setup guide](https://gist.github.com/HenryHengZJ/627cec19671664a88754c7e383232dc8)

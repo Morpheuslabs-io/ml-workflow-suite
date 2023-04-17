@@ -54,7 +54,12 @@ import {
     constructGraphs,
     testWorkflow,
     getNodeModulesPackagePath,
-    getRandomSubdomain
+    getRandomSubdomain,
+    getAPIKeys,
+    addAPIKey,
+    deleteAPIKey,
+    updateAPIKey,
+    updateNodeOutput
 } from './utils'
 import { DeployedWorkflowPool } from './DeployedWorkflowPool'
 import { ActiveTestTriggerPool } from './ActiveTestTriggerPool'
@@ -132,6 +137,9 @@ export class App {
 
                 // Initialize activeTestWebhookPool instance
                 this.activeTestWebhookPool = new ActiveTestWebhookPool()
+
+                // Initialize API keys
+                await getAPIKeys()
             })
             .catch((err) => {
                 console.error('❌[server]: Error during Data Source initialization:', err)
@@ -460,7 +468,8 @@ export class App {
             if (startNode && startNode.data) {
                 let nodeData = startNode.data
                 await decryptCredentials(nodeData)
-                nodeData = resolveVariables(nodeData, nodes)
+                const nodeDataArray = resolveVariables(nodeData, nodes)
+                nodeData = nodeDataArray[0]
 
                 if (!Object.prototype.hasOwnProperty.call(this.componentNodes, nodeData.name)) {
                     res.status(404).send(`Unable to test workflow from node: ${nodeData.name}`)
@@ -473,7 +482,6 @@ export class App {
                     nodeData.emitEventKey = emitEventKey
 
                     triggerNodeInstance.once(emitEventKey, async (result: INodeExecutionData[]) => {
-                        await triggerNodeInstance.removeTrigger!.call(triggerNodeInstance, nodeData)
                         await this.activeTestTriggerPool.remove(nodeData.name, this.componentNodes)
 
                         const newWorkflowExecutedData = {
@@ -485,7 +493,7 @@ export class App {
 
                         io.to(clientId).emit('testWorkflowNodeResponse', newWorkflowExecutedData)
 
-                        testWorkflow(startingNodeId, nodes, edges, graph, this.componentNodes, clientId, io)
+                        testWorkflow(startingNodeId, result, nodes, edges, graph, this.componentNodes, clientId, io)
                     })
 
                     await triggerNodeInstance.runTrigger!.call(triggerNodeInstance, nodeData)
@@ -542,22 +550,9 @@ export class App {
 
                     const reactFlowNodes = nodes
                     const nodeIndex = reactFlowNodes.findIndex((nd) => nd.id === startingNodeId)
+                    updateNodeOutput(reactFlowNodes, nodeIndex, result || [])
 
-                    // Update reactFlowNodes for resolveVariables
-                    if (reactFlowNodes[nodeIndex].data.outputResponses) {
-                        reactFlowNodes[nodeIndex].data.outputResponses = {
-                            ...reactFlowNodes[nodeIndex].data.outputResponses,
-                            output: result
-                        }
-                    } else {
-                        reactFlowNodes[nodeIndex].data.outputResponses = {
-                            submit: true,
-                            needRetest: null,
-                            output: result
-                        }
-                    }
-
-                    testWorkflow(startingNodeId, reactFlowNodes, edges, graph, this.componentNodes, clientId, io)
+                    testWorkflow(startingNodeId, result || [], reactFlowNodes, edges, graph, this.componentNodes, clientId, io)
                 }
             }
         })
@@ -688,18 +683,19 @@ export class App {
                     await decryptCredentials(nodeData)
 
                     if (nodeType === 'action') {
-                        const reactFlowNodeData: INodeData = resolveVariables(nodeData, nodes)
-                        const result = await nodeInstance.run!.call(nodeInstance, reactFlowNodeData)
-
-                        checkOAuth2TokenRefreshed(result, reactFlowNodeData)
-
-                        return res.json(result)
+                        let results: INodeExecutionData[] = []
+                        const reactFlowNodeData: INodeData[] = resolveVariables(nodeData, nodes)
+                        for (let i = 0; i < reactFlowNodeData.length; i += 1) {
+                            const result = await nodeInstance.run!.call(nodeInstance, reactFlowNodeData[i])
+                            checkOAuth2TokenRefreshed(result, reactFlowNodeData[i])
+                            if (result) results.push(...result)
+                        }
+                        return res.json(results)
                     } else if (nodeType === 'trigger') {
                         const triggerNodeInstance = nodeInstance as ITriggerNode
                         const emitEventKey = nodeId
                         nodeData.emitEventKey = emitEventKey
                         triggerNodeInstance.once(emitEventKey, async (result: INodeExecutionData[]) => {
-                            await triggerNodeInstance.removeTrigger!.call(triggerNodeInstance, nodeData)
                             await this.activeTestTriggerPool.remove(nodeData.name, this.componentNodes)
                             return res.json(result)
                         })
@@ -765,6 +761,7 @@ export class App {
                     const methodName = nodeData.loadMethod || ''
                     const loadFromDbCollections = nodeData.loadFromDbCollections || []
                     const dbCollection = {} as IDbCollection
+                    const apiKeys = await getAPIKeys()
 
                     for (let i = 0; i < loadFromDbCollections.length; i += 1) {
                         let collection: any
@@ -785,7 +782,8 @@ export class App {
                     const returnOptions: INodeOptionsValue[] = await nodeInstance.loadMethods![methodName]!.call(
                         nodeInstance,
                         nodeData,
-                        loadFromDbCollections.length ? dbCollection : undefined
+                        loadFromDbCollections.length ? dbCollection : undefined,
+                        apiKeys
                     )
 
                     return res.json(returnOptions)
@@ -830,7 +828,7 @@ export class App {
         // Get list of registered credentials via nodeCredentialName
         this.app.get('/api/v1/credentials', async (req: Request, res: Response) => {
             const credentials = await this.AppDataSource.getMongoRepository(Credential).find({
-                // @ts-expect-error investigate this later
+                // @ts-ignore
                 where: {
                     nodeCredentialName: { $eq: req.query.nodeCredentialName }
                 }
@@ -979,7 +977,7 @@ export class App {
             }
 
             if (body.credentials && body.credentials.registeredCredential) {
-                // @ts-expect-error investigate this later
+                // @ts-ignore
                 const credentialId: string = body.credentials.registeredCredential?._id
 
                 const credential = await this.AppDataSource.getMongoRepository(Credential).findOneBy({
@@ -999,6 +997,16 @@ export class App {
                 url = `${body.networks.uri}?module=contract&action=getabi&address=${body.contractInfo.address}&apikey=${body.credentials.apiKey}`
             } else {
                 url = `${body.networks.uri}?module=contract&action=getabi&address=${body.contractInfo.address}`
+            }
+
+            // URL is not etherscan.io subdomain
+            if (new URL(url).hostname.split('.').slice(-2).join('.') !== 'etherscan.io') {
+                // How do you want to handle this error?
+                return res.status(403).json({
+                    status: '0',
+                    message: 'NOTOK',
+                    result: 'Please change URL and try again'
+                })
             }
 
             const options: AxiosRequestConfig = {
@@ -1069,14 +1077,7 @@ export class App {
                 const network = wallet.network as NETWORK
 
                 // Get Balance
-                if (
-                    decryptedCredentialData.apiKey &&
-                    (credentialMethod === 'etherscanApi' ||
-                        credentialMethod === 'polygonscanApi' ||
-                        credentialMethod === 'bscscanApi' ||
-                        credentialMethod === 'optimisticEtherscanApi' ||
-                        credentialMethod === 'arbiscanApi')
-                ) {
+                if (decryptedCredentialData.apiKey && credentialMethod !== 'noAuth') {
                     url = `${etherscanAPIs[network]}?module=account&action=balance&address=${wallet.address}&tag=latest&apikey=${
                         decryptedCredentialData.apiKey as string
                     }`
@@ -1225,6 +1226,34 @@ export class App {
         })
 
         // ----------------------------------------
+        // API Keys
+        // ----------------------------------------
+
+        // Get api keys
+        this.app.get('/api/v1/apikey', async (req: Request, res: Response) => {
+            const keys = await getAPIKeys()
+            return res.json(keys)
+        })
+
+        // Add new api key
+        this.app.post('/api/v1/apikey', async (req: Request, res: Response) => {
+            const keys = await addAPIKey(req.body.keyName)
+            return res.json(keys)
+        })
+
+        // Update api key
+        this.app.put('/api/v1/apikey/:id', async (req: Request, res: Response) => {
+            const keys = await updateAPIKey(req.params.id, req.body.keyName)
+            return res.json(keys)
+        })
+
+        // Delete new api key
+        this.app.delete('/api/v1/apikey/:id', async (req: Request, res: Response) => {
+            const keys = await deleteAPIKey(req.params.id)
+            return res.json(keys)
+        })
+
+        // ----------------------------------------
         // Webhook
         // ----------------------------------------
 
@@ -1262,6 +1291,11 @@ export class App {
             )
         })
 
+        this.app.get('/api/v1/get-tunnel-url', (req: Request, res: Response) => {
+            if (!process.env.TUNNEL_BASE_URL) throw new Error(`Tunnel URL not found`)
+            res.send(process.env.TUNNEL_BASE_URL)
+        })
+
         // ----------------------------------------
         // OAuth2
         // ----------------------------------------
@@ -1293,8 +1327,19 @@ export class App {
             } catch (e) {
                 return res.status(500).send(e)
             }
+
+            // check if authUrl is valid and is http/https
+            try {
+                const authUrlCheck = new URL(authUrl)
+                if (authUrlCheck.protocol !== 'http:' && authUrlCheck.protocol !== 'https:') {
+                    throw new Error('Invalid URL Protocol')
+                }
+            } catch (e) {
+                return res.status(500).send(e)
+            }
+
             const serializedScope = scopeArray.join(' ')
-            const redirectUrl = `${req.protocol}://${baseURL}/api/v1/oauth2/callback`
+            const redirectUrl = `${req.secure ? 'https' : req.protocol}://${baseURL}/api/v1/oauth2/callback`
 
             const returnURL = `${authUrl}?${authorizationURLParameters}&client_id=${clientID}&scope=${serializedScope}&redirect_uri=${redirectUrl}&state=${credentialId}`
 
@@ -1332,7 +1377,7 @@ export class App {
             }
 
             const baseURL = req.get('host')
-            const redirect_uri = `${req.protocol}://${baseURL}/api/v1/oauth2/callback`
+            const redirect_uri = `${req.secure ? 'https' : req.protocol}://${baseURL}/api/v1/oauth2/callback`
 
             const oAuth2Parameters = {
                 clientId: client_id,
@@ -1373,7 +1418,7 @@ export class App {
 
         this.app.get('/api/v1/oauth2-redirecturl', async (req: Request, res: Response) => {
             const baseURL = req.get('host')
-            res.send(`${req.protocol}://${baseURL}/api/v1/oauth2/callback`)
+            res.send(`${req.secure ? 'https' : req.protocol}://${baseURL}/api/v1/oauth2/callback`)
         })
 
         // ----------------------------------------

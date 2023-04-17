@@ -14,13 +14,14 @@ import { networks } from 'store/constant'
 import Jazzicon, { jsNumberForAddress } from 'react-jazzicon'
 
 const CardWrapper = styled(MainCard)(({ theme }) => ({
-    backgroundColor: '#ffffff',
+    background: theme.palette.card.main,
     color: theme.darkTextPrimary,
     overflow: 'hidden',
     position: 'relative',
     boxShadow: '0 2px 14px 0 rgb(32 40 45 / 8%)',
     cursor: 'pointer',
     '&:hover': {
+        background: theme.palette.card.hover,
         boxShadow: '0 2px 14px 0 rgb(32 40 45 / 20%)'
     }
 }))
@@ -37,8 +38,8 @@ const ItemCard = ({ isLoading, data, images, onClick }) => {
 
     const activeWorkflowSX = {
         ...chipSX,
-        color: theme.palette.success.dark,
-        backgroundColor: theme.palette.success.light
+        color: 'white',
+        backgroundColor: theme.palette.success.dark
     }
 
     const getNetworkItem = (network) => {
@@ -99,15 +100,28 @@ const ItemCard = ({ isLoading, data, images, onClick }) => {
                             {data.network && (
                                 <Grid item>
                                     <Chip
-                                        label={getNetworkItem(data.network).label}
-                                        sx={{ ...chipSX, backgroundColor: getNetworkItem(data.network).color, color: 'white' }}
+                                        label={getNetworkItem(data.network)?.label || `${data.network} (DEPRECATED)`}
+                                        sx={{
+                                            ...chipSX,
+                                            backgroundColor: getNetworkItem(data.network)?.color || '#666666',
+                                            color: 'white'
+                                        }}
                                     />
                                 </Grid>
                             )}
                             {images && (
                                 <div style={{ display: 'flex', flexDirection: 'row', marginTop: 10 }}>
                                     {images.map((img) => (
-                                        <div key={img} style={{ width: 40, height: 40, borderRadius: '50%', backgroundColor: 'white' }}>
+                                        <div
+                                            key={img}
+                                            style={{
+                                                width: 40,
+                                                height: 40,
+                                                marginRight: 5,
+                                                borderRadius: '50%',
+                                                backgroundColor: 'white'
+                                            }}
+                                        >
                                             <img
                                                 style={{ width: '100%', height: '100%', padding: 5, objectFit: 'contain' }}
                                                 alt=''

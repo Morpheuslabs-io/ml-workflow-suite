@@ -29,6 +29,7 @@ import { DeployedWorkflowPool } from '../DeployedWorkflowPool'
 import { ObjectId } from 'mongodb'
 import { ActiveTestWebhookPool } from '../ActiveTestWebhookPool'
 import { getDataSource } from '../DataSource'
+import { scryptSync, randomBytes, timingSafeEqual } from 'crypto'
 
 export enum ShortIdConstants {
     WORKFLOW_ID_PREFIX = 'W',
@@ -140,6 +141,122 @@ export const getEncryptionKey = async (): Promise<string> => {
         await fs.promises.writeFile(getEncryptionKeyPath(), encryptKey)
         return encryptKey
     }
+}
+
+/**
+ * Returns the api key path
+ * @returns {string}
+ */
+export const getAPIKeyPath = (): string => {
+    return path.join(__dirname, '..', '..', 'api.json')
+}
+
+/**
+ * Generate the api key
+ * @returns {string}
+ */
+export const generateAPIKey = () => {
+    const buffer = randomBytes(32)
+    return buffer.toString('base64')
+}
+
+/**
+ * Generate the secret key
+ * @param {string} apiKey
+ * @returns {string}
+ */
+export const generateSecretHash = (apiKey: string) => {
+    const salt = randomBytes(8).toString('hex')
+    const buffer = scryptSync(apiKey, salt, 64) as Buffer
+    return `${buffer.toString('hex')}.${salt}`
+}
+
+/**
+ * Verify valid keys
+ * @param {string} storedKey
+ * @param {string} suppliedKey
+ * @returns {boolean}
+ */
+export const compareKeys = (storedKey: string, suppliedKey: string) => {
+    const [hashedPassword, salt] = storedKey.split('.')
+    const buffer = scryptSync(suppliedKey, salt, 64) as Buffer
+    return timingSafeEqual(Buffer.from(hashedPassword, 'hex'), buffer)
+}
+
+/**
+ * Get API keys
+ * @returns {Promise<ICommonObject[]>}
+ */
+export const getAPIKeys = async (): Promise<ICommonObject[]> => {
+    try {
+        const content = await fs.promises.readFile(getAPIKeyPath(), 'utf8')
+        return JSON.parse(content)
+    } catch (error) {
+        const keyName = 'DefaultKey'
+        const apiKey = generateAPIKey()
+        const apiSecret = generateSecretHash(apiKey)
+        const content = [
+            {
+                keyName,
+                apiKey,
+                apiSecret,
+                createdAt: moment().format('DD-MMM-YY'),
+                id: randomBytes(16).toString('hex')
+            }
+        ]
+        await fs.promises.writeFile(getAPIKeyPath(), JSON.stringify(content), 'utf8')
+        return content
+    }
+}
+
+/**
+ * Add new API key
+ * @param {string} keyName
+ * @returns {Promise<ICommonObject[]>}
+ */
+export const addAPIKey = async (keyName: string): Promise<ICommonObject[]> => {
+    const existingAPIKeys = await getAPIKeys()
+    const apiKey = generateAPIKey()
+    const apiSecret = generateSecretHash(apiKey)
+    const content = [
+        ...existingAPIKeys,
+        {
+            keyName,
+            apiKey,
+            apiSecret,
+            createdAt: moment().format('DD-MMM-YY'),
+            id: randomBytes(16).toString('hex')
+        }
+    ]
+    await fs.promises.writeFile(getAPIKeyPath(), JSON.stringify(content), 'utf8')
+    return content
+}
+
+/**
+ * Update existing API key
+ * @param {string} keyIdToUpdate
+ * @param {string} newKeyName
+ * @returns {Promise<ICommonObject[]>}
+ */
+export const updateAPIKey = async (keyIdToUpdate: string, newKeyName: string): Promise<ICommonObject[]> => {
+    const existingAPIKeys = await getAPIKeys()
+    const keyIndex = existingAPIKeys.findIndex((key) => key.id === keyIdToUpdate)
+    if (keyIndex < 0) return []
+    existingAPIKeys[keyIndex].keyName = newKeyName
+    await fs.promises.writeFile(getAPIKeyPath(), JSON.stringify(existingAPIKeys), 'utf8')
+    return existingAPIKeys
+}
+
+/**
+ * Delete API key
+ * @param {string} keyIdToDelete
+ * @returns {Promise<ICommonObject[]>}
+ */
+export const deleteAPIKey = async (keyIdToDelete: string): Promise<ICommonObject[]> => {
+    const existingAPIKeys = await getAPIKeys()
+    const result = existingAPIKeys.filter((key) => key.id !== keyIdToDelete)
+    await fs.promises.writeFile(getAPIKeyPath(), JSON.stringify(result), 'utf8')
+    return result
 }
 
 /**
@@ -281,9 +398,11 @@ export const constructGraphsAndGetStartingNodes = (res: Response, reactFlowNodes
  * Get variable value from outputResponses.output
  * @param {string} paramValue
  * @param {IReactFlowNode[]} reactFlowNodes
+ * @param {string} key
+ * @param {number} loopIndex
  * @returns {string}
  */
-export const getVariableValue = (paramValue: string, reactFlowNodes: IReactFlowNode[]): string => {
+export const getVariableValue = (paramValue: string, reactFlowNodes: IReactFlowNode[], key: string, loopIndex: number): string => {
     let returnVal = paramValue
     const variableStack = []
     const variableDict = {} as IVariableDict
@@ -306,13 +425,20 @@ export const getVariableValue = (paramValue: string, reactFlowNodes: IReactFlowN
 
             // Split by first occurence of '[' to get just nodeId
             const [variableNodeId, ...rest] = variableFullPath.split('[')
-            const variablePath = 'outputResponses.output' + '[' + rest.join('[')
+            let variablePath = 'outputResponses.output' + '[' + rest.join('[')
+            if (variablePath.includes('$index')) {
+                variablePath = variablePath.split('$index').join(loopIndex.toString())
+            }
 
             const executedNode = reactFlowNodes.find((nd) => nd.id === variableNodeId)
             if (executedNode) {
-                const resolvedVariablePath = getVariableValue(variablePath, reactFlowNodes)
-                const variableValue = lodash.get(executedNode.data, resolvedVariablePath, '')
-                variableDict[`{{${variableFullPath}}}`] = variableValue || ''
+                const resolvedVariablePath = getVariableValue(variablePath, reactFlowNodes, key, loopIndex)
+                const variableValue = lodash.get(executedNode.data, resolvedVariablePath)
+                variableDict[`{{${variableFullPath}}}`] = variableValue
+                // For instance: const var1 = "some var"
+                if (key === 'code' && typeof variableValue === 'string') variableDict[`{{${variableFullPath}}}`] = `"${variableValue}"`
+                if (key === 'code' && typeof variableValue === 'object')
+                    variableDict[`{{${variableFullPath}}}`] = `${JSON.stringify(variableValue)}`
             }
             variableStack.pop()
         }
@@ -331,43 +457,124 @@ export const getVariableValue = (paramValue: string, reactFlowNodes: IReactFlowN
 }
 
 /**
+ * Get minimum variable array length from outputResponses.output
+ * @param {string} paramValue
+ * @param {IReactFlowNode[]} reactFlowNodes
+ * @returns {number}
+ */
+export const getVariableLength = (paramValue: string, reactFlowNodes: IReactFlowNode[]): number => {
+    let minLoop = Infinity
+    const variableStack = []
+    let startIdx = 0
+    const endIdx = paramValue.length - 1
+
+    while (startIdx < endIdx) {
+        const substr = paramValue.substring(startIdx, startIdx + 2)
+
+        // Store the opening double curly bracket
+        if (substr === '{{') {
+            variableStack.push({ substr, startIdx: startIdx + 2 })
+        }
+
+        // Found the complete variable
+        if (substr === '}}' && variableStack.length > 0 && variableStack[variableStack.length - 1].substr === '{{') {
+            const variableStartIdx = variableStack[variableStack.length - 1].startIdx
+            const variableEndIdx = startIdx
+            const variableFullPath = paramValue.substring(variableStartIdx, variableEndIdx)
+
+            if (variableFullPath.includes('$index')) {
+                // Split by first occurence of '[' to get just nodeId
+                const [variableNodeId, ...rest] = variableFullPath.split('[')
+                const variablePath = 'outputResponses.output' + '[' + rest.join('[')
+                const [variableArrayPath, ..._] = variablePath.split('[$index]')
+
+                const executedNode = reactFlowNodes.find((nd) => nd.id === variableNodeId)
+                if (executedNode) {
+                    const variableValue = lodash.get(executedNode.data, variableArrayPath)
+                    if (Array.isArray(variableValue)) minLoop = Math.min(minLoop, variableValue.length)
+                }
+            }
+            variableStack.pop()
+        }
+        startIdx += 1
+    }
+    return minLoop
+}
+
+/**
  * Loop through each inputs and resolve variable if neccessary
  * @param {INodeData} reactFlowNodeData
  * @param {IReactFlowNode[]} reactFlowNodes
  * @returns {INodeData}
  */
-export const resolveVariables = (reactFlowNodeData: INodeData, reactFlowNodes: IReactFlowNode[]): INodeData => {
+export const resolveVariables = (reactFlowNodeData: INodeData, reactFlowNodes: IReactFlowNode[]): INodeData[] => {
+    const flowNodeDataArray: INodeData[] = []
     const flowNodeData = lodash.cloneDeep(reactFlowNodeData)
     const types = ['actions', 'networks', 'inputParameters']
 
-    const getParamValues = (paramsObj: ICommonObject) => {
+    const getMinForLoop = (paramsObj: ICommonObject) => {
+        let minLoop = Infinity
+        for (const key in paramsObj) {
+            const paramValue = paramsObj[key]
+            if (typeof paramValue === 'string' && paramValue.includes('$index')) {
+                // node.data[$index].smtg
+                minLoop = Math.min(minLoop, getVariableLength(paramValue, reactFlowNodes))
+            }
+            if (Array.isArray(paramValue)) {
+                for (let j = 0; j < paramValue.length; j += 1) {
+                    minLoop = Math.min(minLoop, getMinForLoop(paramValue[j] as ICommonObject))
+                }
+            }
+        }
+        return minLoop
+    }
+
+    const getParamValues = (paramsObj: ICommonObject, loopIndex: number) => {
         for (const key in paramsObj) {
             const paramValue = paramsObj[key]
 
             if (typeof paramValue === 'string') {
-                const resolvedValue = getVariableValue(paramValue, reactFlowNodes)
+                const resolvedValue = getVariableValue(paramValue, reactFlowNodes, key, loopIndex)
                 paramsObj[key] = resolvedValue
             }
 
             if (typeof paramValue === 'number') {
                 const paramValueStr = paramValue.toString()
-                const resolvedValue = getVariableValue(paramValueStr, reactFlowNodes)
+                const resolvedValue = getVariableValue(paramValueStr, reactFlowNodes, key, loopIndex)
                 paramsObj[key] = resolvedValue
             }
 
             if (Array.isArray(paramValue)) {
                 for (let j = 0; j < paramValue.length; j += 1) {
-                    getParamValues(paramValue[j] as ICommonObject)
+                    getParamValues(paramValue[j] as ICommonObject, loopIndex)
                 }
             }
         }
     }
 
+    let minLoop = Infinity
     for (let i = 0; i < types.length; i += 1) {
         const paramsObj = (flowNodeData as any)[types[i]]
-        getParamValues(paramsObj)
+        minLoop = Math.min(minLoop, getMinForLoop(paramsObj))
     }
-    return flowNodeData
+
+    if (minLoop === Infinity) {
+        for (let i = 0; i < types.length; i += 1) {
+            const paramsObj = (flowNodeData as any)[types[i]]
+            getParamValues(paramsObj, -1)
+        }
+        return [flowNodeData]
+    } else {
+        for (let j = 0; j < minLoop; j += 1) {
+            const clonedFlowNodeData = lodash.cloneDeep(flowNodeData)
+            for (let i = 0; i < types.length; i += 1) {
+                const paramsObj = (clonedFlowNodeData as any)[types[i]]
+                getParamValues(paramsObj, j)
+            }
+            flowNodeDataArray.push(clonedFlowNodeData)
+        }
+        return flowNodeDataArray
+    }
 }
 
 /**
@@ -378,7 +585,7 @@ export const decryptCredentials = async (nodeData: INodeData, appDataSource?: Da
     if (!appDataSource) appDataSource = getDataSource()
 
     if (nodeData.credentials && nodeData.credentials.registeredCredential) {
-        // @ts-expect-error investigate this later
+        // @ts-ignore
         const credentialId: string = nodeData.credentials.registeredCredential?._id
 
         const credential = await appDataSource.getMongoRepository(Credential).findOneBy({
@@ -468,8 +675,16 @@ export const processWebhook = async (
                 activeTestWebhooksPool.remove(testWebhookKey, componentNodes)
 
                 const webhookResponseCode = (nodeData.inputParameters?.responseCode as number) || 200
-                const webhookResponseData = (nodeData.inputParameters?.responseData as string) || `Webhook ${req.originalUrl} received!`
-                return res.status(webhookResponseCode).send(webhookResponseData)
+                if (
+                    (nodeData.inputParameters?.returnType as string) === 'lastNodeResponse' ||
+                    nodeData.name === 'chainLinkFunctionWebhook'
+                ) {
+                    const webhookResponseData = result || []
+                    return res.status(webhookResponseCode).json(webhookResponseData)
+                } else {
+                    const webhookResponseData = (nodeData.inputParameters?.responseData as string) || `Webhook ${req.originalUrl} received!`
+                    return res.status(webhookResponseCode).send(webhookResponseData)
+                }
             } else {
                 nodeData.req = req
                 const result = await webhookNodeInstance.runWebhook!.call(webhookNodeInstance, nodeData)
@@ -490,11 +705,38 @@ export const processWebhook = async (
 
                 const { graph } = constructGraphs(nodes, edges)
 
-                testWorkflow(webhookNodeId, nodes, edges, graph, componentNodes, clientId, io)
-
                 const webhookResponseCode = (nodeData.inputParameters?.responseCode as number) || 200
-                const webhookResponseData = (nodeData.inputParameters?.responseData as string) || `Webhook ${req.originalUrl} received!`
-                return res.status(webhookResponseCode).send(webhookResponseData)
+                if (
+                    (nodeData.inputParameters?.returnType as string) === 'lastNodeResponse' ||
+                    nodeData.name === 'chainLinkFunctionWebhook'
+                ) {
+                    const lastExecutedResult = await testWorkflow(
+                        webhookNodeId,
+                        result.length ? [{ data: result[0].data }] : [],
+                        nodes,
+                        edges,
+                        graph,
+                        componentNodes,
+                        clientId,
+                        io,
+                        true
+                    )
+                    const webhookResponseData = lastExecutedResult || []
+                    return res.status(webhookResponseCode).json(webhookResponseData)
+                } else {
+                    await testWorkflow(
+                        webhookNodeId,
+                        result.length ? [{ data: result[0].data }] : [],
+                        nodes,
+                        edges,
+                        graph,
+                        componentNodes,
+                        clientId,
+                        io
+                    )
+                    const webhookResponseData = (nodeData.inputParameters?.responseData as string) || `Webhook ${req.originalUrl} received!`
+                    return res.status(webhookResponseCode).send(webhookResponseData)
+                }
             }
         } else {
             const webhook = await AppDataSource.getMongoRepository(Webhook).findOneBy({
@@ -556,7 +798,78 @@ export const processWebhook = async (
 
             if (result === null) return res.status(200).send('OK!')
 
-            await deployedWorkflowsPool.startWorkflow(
+            const webhookResponseCode = (nodeData.inputParameters?.responseCode as number) || 200
+
+            /**
+             * Very specific use case for chainLinkFunctionWebhook
+             * This is to prevent workflow from triggering multiple times because
+             * Each oracle node runs the same computation in the Off-chain Reporting protocol, hence webhook will be called multiple times
+             * By storing sessionId, we can keep track if this is the same computation run from oracle node
+             * Info: https://docs.chain.link/chainlink-functions/tutorials/api-post-data
+             */
+            let chainLinkSessionId = ''
+
+            const updateWebhookData = async (chainLinkSessionId: string, data?: any) => {
+                const content: ICommonObject = { sessionId: chainLinkSessionId }
+                if (data) content.data = data
+                const body = { webhookId: JSON.stringify(content) }
+                const updateWebhook = new Webhook()
+                Object.assign(updateWebhook, body)
+
+                AppDataSource.getMongoRepository(Webhook).merge(webhook, updateWebhook)
+                await AppDataSource.getMongoRepository(Webhook).save(webhook)
+            }
+
+            if (
+                nodeData.name === 'chainLinkFunctionWebhook' &&
+                result.length &&
+                result[0].data.headers &&
+                ((result[0].data.headers as any)['cf-session-id'] || (result[0].data.headers as any)['CF-SESSION-ID'])
+            ) {
+                const sessionId = (result[0].data.headers as any)['cf-session-id']
+
+                if (!webhook.webhookId) {
+                    chainLinkSessionId = sessionId
+                    await updateWebhookData(chainLinkSessionId)
+                } else {
+                    const lastSavedSessionId = JSON.parse(webhook.webhookId)?.sessionId
+                    if (lastSavedSessionId !== sessionId) {
+                        chainLinkSessionId = sessionId
+                        await updateWebhookData(chainLinkSessionId)
+                    } else {
+                        const promise = () => {
+                            return new Promise((resolve, reject) => {
+                                let count = 10
+                                const timeout = setInterval(async () => {
+                                    if (count < 0) {
+                                        clearInterval(timeout)
+                                        reject(new Error(`Chainlink Function Webhook Timeout`))
+                                    }
+                                    const webhook = await AppDataSource.getMongoRepository(Webhook).findOneBy({
+                                        webhookEndpoint,
+                                        httpMethod
+                                    })
+                                    if (!webhook) {
+                                        clearInterval(timeout)
+                                        reject(new Error(`Error finding Chainlink Function Webhook`))
+                                    } else {
+                                        const lastSavedData = JSON.parse(webhook.webhookId)?.data
+                                        if (lastSavedData) {
+                                            clearInterval(timeout)
+                                            resolve(lastSavedData)
+                                        }
+                                    }
+                                    count -= 1
+                                }, 1000)
+                            })
+                        }
+                        const responseData = await promise()
+                        return res.status(webhookResponseCode).json(responseData)
+                    }
+                }
+            }
+
+            const workflowExecutedData = (await deployedWorkflowsPool.startWorkflow(
                 workflowShortId,
                 reactFlowNode,
                 reactFlowNode.id,
@@ -564,11 +877,16 @@ export const processWebhook = async (
                 componentNodes,
                 startingNodeIds,
                 graph
-            )
-
-            const webhookResponseCode = (nodeData.inputParameters?.responseCode as number) || 200
-            const webhookResponseData = (nodeData.inputParameters?.responseData as string) || `Webhook ${req.originalUrl} received!`
-            return res.status(webhookResponseCode).send(webhookResponseData)
+            )) as unknown as IWorkflowExecutedData[]
+            if ((nodeData.inputParameters?.returnType as string) === 'lastNodeResponse' || nodeData.name === 'chainLinkFunctionWebhook') {
+                const lastExecutedResult = workflowExecutedData[workflowExecutedData.length - 1]
+                const webhookResponseData = lastExecutedResult?.data || []
+                if (chainLinkSessionId) await updateWebhookData(chainLinkSessionId, webhookResponseData)
+                return res.status(webhookResponseCode).json(webhookResponseData)
+            } else {
+                const webhookResponseData = (nodeData.inputParameters?.responseData as string) || `Webhook ${req.originalUrl} received!`
+                return res.status(webhookResponseCode).send(webhookResponseData)
+            }
         }
     } catch (error) {
         res.status(500).send(`Webhook error: ${error}`)
@@ -651,8 +969,30 @@ export const checkOAuth2TokenRefreshed = (result: INodeExecutionData[] | null, n
 }
 
 /**
+ * Update reactFlowNodes so that resolveVariables is called, it is getting updated result
+ * @param {IReactFlowNode[]} reactFlowNodes
+ * @param {number} nodeIndex
+ * @param {INodeExecutionData[]} newResult
+ */
+export const updateNodeOutput = (reactFlowNodes: IReactFlowNode[], nodeIndex: number, newResult: INodeExecutionData[] = []) => {
+    if (reactFlowNodes[nodeIndex].data.outputResponses) {
+        reactFlowNodes[nodeIndex].data.outputResponses = {
+            ...reactFlowNodes[nodeIndex].data.outputResponses,
+            output: newResult
+        }
+    } else {
+        reactFlowNodes[nodeIndex].data.outputResponses = {
+            submit: true,
+            needRetest: null,
+            output: newResult
+        }
+    }
+}
+
+/**
  * Test Workflow from starting node to end
  * @param {string} startingNodeId
+ * @param {INodeExecutionData[]} startingNodeExecutedData
  * @param {IReactFlowNode[]} reactFlowNodes
  * @param {IReactFlowEdge[]} reactFlowEdges
  * @param {INodeDirectedGraph} graph
@@ -662,20 +1002,27 @@ export const checkOAuth2TokenRefreshed = (result: INodeExecutionData[] | null, n
  */
 export const testWorkflow = async (
     startingNodeId: string,
+    startingNodeExecutedData: INodeExecutionData[],
     reactFlowNodes: IReactFlowNode[],
     reactFlowEdges: IReactFlowEdge[],
     graph: INodeDirectedGraph,
     componentNodes: IComponentNodesPool,
     clientId: string,
-    io: any
+    io: any,
+    returnLastExecutedResult?: boolean
 ) => {
     // Create a Queue and add our initial node in it
     const startingNodeIds = [startingNodeId]
+    const startingNodeIndex = reactFlowNodes.findIndex((nd) => nd.id === startingNodeId)
+    updateNodeOutput(reactFlowNodes, startingNodeIndex, startingNodeExecutedData)
 
     const nodeQueue = [] as INodeQueue[]
     const exploredNode = {} as IExploredNode
     // In the case of infinite loop, only max 3 loops will be executed
     const maxLoop = 3
+
+    // Keep track of last executed result
+    let lastExecutedResult: any
 
     for (let i = 0; i < startingNodeIds.length; i += 1) {
         nodeQueue.push({ nodeId: startingNodeIds[i], depth: 0 })
@@ -698,32 +1045,24 @@ export const testWorkflow = async (
 
                 await decryptCredentials(reactFlowNode.data)
 
-                const reactFlowNodeData: INodeData = resolveVariables(reactFlowNode.data, reactFlowNodes)
+                const reactFlowNodeData: INodeData[] = resolveVariables(reactFlowNode.data, reactFlowNodes)
 
-                const result = await newNodeInstance.run!.call(newNodeInstance, reactFlowNodeData)
+                let results: INodeExecutionData[] = []
 
-                checkOAuth2TokenRefreshed(result, reactFlowNodeData)
-
-                // Update reactFlowNodes for resolveVariables
-                if (reactFlowNodes[nodeIndex].data.outputResponses) {
-                    reactFlowNodes[nodeIndex].data.outputResponses = {
-                        ...reactFlowNodes[nodeIndex].data.outputResponses,
-                        output: result
-                    }
-                } else {
-                    reactFlowNodes[nodeIndex].data.outputResponses = {
-                        submit: true,
-                        needRetest: null,
-                        output: result
-                    }
+                for (let i = 0; i < reactFlowNodeData.length; i += 1) {
+                    const result = await newNodeInstance.run!.call(newNodeInstance, reactFlowNodeData[i])
+                    checkOAuth2TokenRefreshed(result, reactFlowNodeData[i])
+                    if (result) results.push(...result)
                 }
 
+                updateNodeOutput(reactFlowNodes, nodeIndex, results)
+
                 // Determine which nodes to route next when it comes to ifElse
-                if (result && nodeId.includes('ifElse')) {
+                if (results.length && nodeId.includes('ifElse')) {
                     let anchorIndex = -1
-                    if (Array.isArray(result) && Object.keys(result[0].data).length === 0) {
+                    if (Array.isArray(results) && Object.keys((results as any)[0].data).length === 0) {
                         anchorIndex = 0
-                    } else if (Array.isArray(result) && Object.keys(result[1].data).length === 0) {
+                    } else if (Array.isArray(results) && Object.keys((results as any)[1].data).length === 0) {
                         anchorIndex = 1
                     }
                     const ifElseEdge = reactFlowEdges.find(
@@ -737,9 +1076,11 @@ export const testWorkflow = async (
                 const newWorkflowExecutedData = {
                     nodeId,
                     nodeLabel: reactFlowNode.data.label,
-                    data: result,
+                    data: results,
                     status: 'FINISHED'
                 } as IWorkflowExecutedData
+
+                lastExecutedResult = results
 
                 io.to(clientId).emit('testWorkflowNodeResponse', newWorkflowExecutedData)
             } catch (e: any) {
@@ -750,6 +1091,8 @@ export const testWorkflow = async (
                     data: [{ error: e.message }],
                     status: 'ERROR'
                 } as IWorkflowExecutedData
+
+                lastExecutedResult = [{ error: e.message }]
 
                 io.to(clientId).emit('testWorkflowNodeResponse', newWorkflowExecutedData)
                 return
@@ -783,4 +1126,6 @@ export const testWorkflow = async (
         }
     }
     io.to(clientId).emit('testWorkflowNodeFinish')
+
+    if (returnLastExecutedResult) return lastExecutedResult
 }

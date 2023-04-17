@@ -33,6 +33,7 @@ import { ethers } from 'ethers'
 import InputParameters from 'views/inputs/InputParameters'
 import CredentialInput from 'views/inputs/CredentialInput'
 import EditVariableDialog from 'ui-component/dialog/EditVariableDialog'
+import { StyledButton } from 'ui-component/StyledButton'
 
 // Icons
 import { IconExclamationMark, IconCheck, IconX, IconArrowUpRightCircle, IconCopy } from '@tabler/icons'
@@ -125,24 +126,27 @@ const ContractDialog = ({ show, dialogProps, onCancel, onConfirm }) => {
             address: contractData.contractInfo.address,
             providerCredential: JSON.stringify(contractData.credentials)
         }
-        const createResp = await contractsApi.createNewContract(createNewContractBody)
-        if (createResp.data) {
+        try {
+            const createResp = await contractsApi.createNewContract(createNewContractBody)
+            if (createResp.data) {
+                enqueueSnackbar({
+                    message: 'New contract added',
+                    options: {
+                        key: new Date().getTime() + Math.random(),
+                        variant: 'success',
+                        action: (key) => (
+                            <Button style={{ color: 'white' }} onClick={() => closeSnackbar(key)}>
+                                <IconX />
+                            </Button>
+                        )
+                    }
+                })
+                onConfirm()
+            }
+        } catch (error) {
+            const errorData = error.response.data || `${error.response.status}: ${error.response.statusText}`
             enqueueSnackbar({
-                message: 'New contract added',
-                options: {
-                    key: new Date().getTime() + Math.random(),
-                    variant: 'success',
-                    action: (key) => (
-                        <Button style={{ color: 'white' }} onClick={() => closeSnackbar(key)}>
-                            <IconX />
-                        </Button>
-                    )
-                }
-            })
-            onConfirm()
-        } else {
-            enqueueSnackbar({
-                message: 'Failed to add new contract',
+                message: `Failed to add new contract: ${errorData}`,
                 options: {
                     key: new Date().getTime() + Math.random(),
                     variant: 'error',
@@ -166,24 +170,27 @@ const ContractDialog = ({ show, dialogProps, onCancel, onConfirm }) => {
             address: contractData.contractInfo.address,
             providerCredential: JSON.stringify(contractData.credentials)
         }
-        const saveResp = await contractsApi.updateContract(dialogProps.id, saveContractBody)
-        if (saveResp.data) {
+        try {
+            const saveResp = await contractsApi.updateContract(dialogProps.id, saveContractBody)
+            if (saveResp.data) {
+                enqueueSnackbar({
+                    message: 'Contract saved',
+                    options: {
+                        key: new Date().getTime() + Math.random(),
+                        variant: 'success',
+                        action: (key) => (
+                            <Button style={{ color: 'white' }} onClick={() => closeSnackbar(key)}>
+                                <IconX />
+                            </Button>
+                        )
+                    }
+                })
+                onConfirm()
+            }
+        } catch (error) {
+            const errorData = error.response.data || `${error.response.status}: ${error.response.statusText}`
             enqueueSnackbar({
-                message: 'Contract saved',
-                options: {
-                    key: new Date().getTime() + Math.random(),
-                    variant: 'success',
-                    action: (key) => (
-                        <Button style={{ color: 'white' }} onClick={() => closeSnackbar(key)}>
-                            <IconX />
-                        </Button>
-                    )
-                }
-            })
-            onConfirm()
-        } else {
-            enqueueSnackbar({
-                message: 'Failed to save contract',
+                message: `Failed to save contract: ${errorData}`,
                 options: {
                     key: new Date().getTime() + Math.random(),
                     variant: 'error',
@@ -200,24 +207,27 @@ const ContractDialog = ({ show, dialogProps, onCancel, onConfirm }) => {
     }
 
     const deleteContract = async () => {
-        const deleteResp = await contractsApi.deleteContract(dialogProps.id)
-        if (deleteResp.data) {
+        try {
+            const deleteResp = await contractsApi.deleteContract(dialogProps.id)
+            if (deleteResp.data) {
+                enqueueSnackbar({
+                    message: 'Contract deleted',
+                    options: {
+                        key: new Date().getTime() + Math.random(),
+                        variant: 'success',
+                        action: (key) => (
+                            <Button style={{ color: 'white' }} onClick={() => closeSnackbar(key)}>
+                                <IconX />
+                            </Button>
+                        )
+                    }
+                })
+                onConfirm()
+            }
+        } catch (error) {
+            const errorData = error.response.data || `${error.response.status}: ${error.response.statusText}`
             enqueueSnackbar({
-                message: 'Contract deleted',
-                options: {
-                    key: new Date().getTime() + Math.random(),
-                    variant: 'success',
-                    action: (key) => (
-                        <Button style={{ color: 'white' }} onClick={() => closeSnackbar(key)}>
-                            <IconX />
-                        </Button>
-                    )
-                }
-            })
-            onConfirm()
-        } else {
-            enqueueSnackbar({
-                message: 'Failed to delete contract',
+                message: `Failed to delete contract: ${errorData}`,
                 options: {
                     key: new Date().getTime() + Math.random(),
                     variant: 'error',
@@ -679,17 +689,17 @@ const ContractDialog = ({ show, dialogProps, onCancel, onConfirm }) => {
             <DialogActions>
                 <Button onClick={onCancel}>{dialogProps.cancelButtonName}</Button>
                 {dialogProps.type === 'EDIT' && (
-                    <Button variant='contained' color='error' onClick={() => deleteContract()}>
+                    <StyledButton variant='contained' color='error' onClick={() => deleteContract()}>
                         Delete
-                    </Button>
+                    </StyledButton>
                 )}
-                <Button
+                <StyledButton
                     variant='contained'
                     disabled={!isReadyToAdd}
                     onClick={() => (dialogProps.type === 'ADD' ? addNewContract() : saveContract())}
                 >
                     {dialogProps.confirmButtonName}
-                </Button>
+                </StyledButton>
             </DialogActions>
         </Dialog>
     ) : null

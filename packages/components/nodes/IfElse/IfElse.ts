@@ -14,7 +14,8 @@ class IfElse implements INode {
     type: NodeType
     description?: string
     version: number
-    icon?: string
+    icon: string
+    category: string
     incoming: number
     outgoing: number
     inputParameters?: INodeParams[]
@@ -25,6 +26,7 @@ class IfElse implements INode {
         this.icon = 'ifelse.svg'
         this.version = 1.0
         this.type = 'action'
+        this.category = 'Utilities'
         this.description = 'Split flows according to conditions set'
         this.incoming = 1
         this.outgoing = 2
@@ -121,6 +123,10 @@ class IfElse implements INode {
                             {
                                 label: 'Is Empty',
                                 name: 'isEmpty'
+                            },
+                            {
+                                label: 'Not Empty',
+                                name: 'notEmpty'
                             }
                         ],
                         default: 'equal',
@@ -137,6 +143,9 @@ class IfElse implements INode {
                         description: 'Second value to be compared with',
                         show: {
                             'inputParameters.conditions[$index].type': ['string']
+                        },
+                        hide: {
+                            'inputParameters.conditions[$index].operation': ['isEmpty', 'notEmpty']
                         }
                     },
                     /////////////////////////////////////// NUMBER ////////////////////////////////////////
@@ -182,6 +191,10 @@ class IfElse implements INode {
                             {
                                 label: 'Is Empty',
                                 name: 'isEmpty'
+                            },
+                            {
+                                label: 'Not Empty',
+                                name: 'notEmpty'
                             }
                         ],
                         default: 'equal',
@@ -198,6 +211,9 @@ class IfElse implements INode {
                         description: 'Second value to be compared with',
                         show: {
                             'inputParameters.conditions[$index].type': ['number']
+                        },
+                        hide: {
+                            'inputParameters.conditions[$index].operation': ['isEmpty', 'notEmpty']
                         }
                     },
                     /////////////////////////////////////// BOOLEAN ////////////////////////////////////////
@@ -266,12 +282,13 @@ class IfElse implements INode {
             endsWith: (value1: CommonType, value2: CommonType) => (value1 as string).endsWith(value2 as string),
             equal: (value1: CommonType, value2: CommonType) => value1 === value2,
             notEqual: (value1: CommonType, value2: CommonType) => value1 !== value2,
-            larger: (value1: CommonType, value2: CommonType) => (value1 || 0) > (value2 || 0),
-            largerEqual: (value1: CommonType, value2: CommonType) => (value1 || 0) >= (value2 || 0),
-            smaller: (value1: CommonType, value2: CommonType) => (value1 || 0) < (value2 || 0),
-            smallerEqual: (value1: CommonType, value2: CommonType) => (value1 || 0) <= (value2 || 0),
+            larger: (value1: CommonType, value2: CommonType) => (Number(value1) || 0) > (Number(value2) || 0),
+            largerEqual: (value1: CommonType, value2: CommonType) => (Number(value1) || 0) >= (Number(value2) || 0),
+            smaller: (value1: CommonType, value2: CommonType) => (Number(value1) || 0) < (Number(value2) || 0),
+            smallerEqual: (value1: CommonType, value2: CommonType) => (Number(value1) || 0) <= (Number(value2) || 0),
             startsWith: (value1: CommonType, value2: CommonType) => (value1 as string).startsWith(value2 as string),
-            isEmpty: (value1: CommonType) => [undefined, null, ''].includes(value1 as string)
+            isEmpty: (value1: CommonType) => [undefined, null, ''].includes(value1 as string),
+            notEmpty: (value1: CommonType) => ![undefined, null, ''].includes(value1 as string)
         }
 
         const conditions = inputParametersData.conditions as unknown as ICondition[]

@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
-import ReactFlow, { ReactFlowProvider, addEdge, MiniMap, Controls, Background, useNodesState, useEdgesState } from 'react-flow-renderer'
+import ReactFlow, { addEdge, MiniMap, Controls, Background, useNodesState, useEdgesState } from 'reactflow'
+import 'reactflow/dist/style.css'
+
 import { useDispatch, useSelector } from 'react-redux'
 import { useNavigate } from 'react-router-dom'
 import { usePrompt } from '../../utils/usePrompt'
@@ -405,6 +407,27 @@ const Canvas = () => {
         )
     })
 
+    const onNodeContextMenu = (event, clickedNode) => {
+        event.preventDefault()
+        setSelectedNode(clickedNode)
+        setNodes((nds) =>
+            nds.map((node) => {
+                if (node.id === clickedNode.id) {
+                    node.data = {
+                        ...node.data,
+                        selected: true
+                    }
+                } else {
+                    node.data = {
+                        ...node.data,
+                        selected: false
+                    }
+                }
+                return node
+            })
+        )
+    }
+
     // eslint-disable-next-line
     const onNodeLabelUpdate = useCallback((nodeLabel) => {
         setNodes((nds) =>
@@ -549,6 +572,22 @@ const Canvas = () => {
         })
     }
 
+    const errorFailed = (message) => {
+        enqueueSnackbar({
+            message,
+            options: {
+                key: new Date().getTime() + Math.random(),
+                variant: 'error',
+                persist: true,
+                action: (key) => (
+                    <Button style={{ color: 'white' }} onClick={() => closeSnackbar(key)}>
+                        <IconX />
+                    </Button>
+                )
+            }
+        })
+    }
+
     const setDirty = () => {
         dispatch({ type: SET_DIRTY })
     }
@@ -563,10 +602,14 @@ const Canvas = () => {
             setNodes(initialFlow.nodes || [])
             setEdges(initialFlow.edges || [])
             dispatch({ type: SET_WORKFLOW, workflow })
+        } else if (getSpecificWorkflowApi.error) {
+            const error = getSpecificWorkflowApi.error
+            const errorData = error.response.data || `${error.response.status}: ${error.response.statusText}`
+            errorFailed(`Failed to retrieve workflow: ${errorData}`)
         }
 
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [getSpecificWorkflowApi.data])
+    }, [getSpecificWorkflowApi.data, getSpecificWorkflowApi.error])
 
     // Create new workflow successful
     useEffect(() => {
@@ -575,20 +618,28 @@ const Canvas = () => {
             dispatch({ type: SET_WORKFLOW, workflow })
             saveWorkflowSuccess()
             window.history.replaceState(null, null, `/canvas/${workflow.shortId}`)
+        } else if (createNewWorkflowApi.error) {
+            const error = createNewWorkflowApi.error
+            const errorData = error.response.data || `${error.response.status}: ${error.response.statusText}`
+            errorFailed(`Failed to save workflow: ${errorData}`)
         }
 
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [createNewWorkflowApi.data])
+    }, [createNewWorkflowApi.data, createNewWorkflowApi.error])
 
     // Update workflow successful
     useEffect(() => {
         if (updateWorkflowApi.data) {
             dispatch({ type: SET_WORKFLOW, workflow: updateWorkflowApi.data })
             saveWorkflowSuccess()
+        } else if (updateWorkflowApi.error) {
+            const error = updateWorkflowApi.error
+            const errorData = error.response.data || `${error.response.status}: ${error.response.statusText}`
+            errorFailed(`Failed to save workflow: ${errorData}`)
         }
 
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [updateWorkflowApi.data])
+    }, [updateWorkflowApi.data, updateWorkflowApi.error])
 
     // Test workflow failed
     useEffect(() => {
@@ -615,7 +666,8 @@ const Canvas = () => {
     useEffect(() => {
         if (rfInstance) {
             const edges = rfInstance.getEdges()
-            setEdges(edges.filter((edge) => edge.id !== canvasDataStore.removeEdgeId))
+            const toRemoveEdgeId = canvasDataStore.removeEdgeId.split(':')[0]
+            setEdges(edges.filter((edge) => edge.id !== toRemoveEdgeId))
             setDirty()
         }
 
@@ -659,6 +711,24 @@ const Canvas = () => {
         setCanvasDataStore(canvas)
     }, [canvas])
 
+    useEffect(() => {
+        function handlePaste(e) {
+            const pasteData = e.clipboardData.getData('text')
+            //TODO: prevent paste event when input focused, temporary fix: catch workflow syntax
+            if (pasteData.includes('{"nodes":[') && pasteData.includes('],"edges":[')) {
+                handleLoadWorkflow(pasteData)
+            }
+        }
+
+        window.addEventListener('paste', handlePaste)
+
+        return () => {
+            window.removeEventListener('paste', handlePaste)
+        }
+
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [])
+
     usePrompt('You have unsaved changes! Do you want to navigate away?', canvasDataStore.isDirty)
 
     return (
@@ -686,71 +756,70 @@ const Canvas = () => {
                 </AppBar>
                 <Box sx={{ marginTop: '70px', height: '90vh', width: '100%' }}>
                     <div className='reactflow-parent-wrapper'>
-                        <ReactFlowProvider>
-                            <div className='reactflow-wrapper' ref={reactFlowWrapper}>
-                                <ReactFlow
+                        <div className='reactflow-wrapper' ref={reactFlowWrapper}>
+                            <ReactFlow
+                                nodes={nodes}
+                                edges={edges}
+                                onNodesChange={onNodesChange}
+                                onNodeDoubleClick={onNodeDoubleClick}
+                                onNodeContextMenu={onNodeContextMenu}
+                                onEdgesChange={onEdgesChange}
+                                onDrop={onDrop}
+                                onDragOver={onDragOver}
+                                onNodeDragStop={setDirty}
+                                nodeTypes={nodeTypes}
+                                edgeTypes={edgeTypes}
+                                onConnect={onConnect}
+                                onInit={setRfInstance}
+                                fitView
+                            >
+                                <MiniMap
+                                    nodeStrokeColor={() => theme.palette.primary.main}
+                                    nodeColor={() => theme.palette.primary.main}
+                                    nodeBorderRadius={2}
+                                />
+                                <Controls
+                                    style={{
+                                        display: 'flex',
+                                        flexDirection: 'row',
+                                        left: '50%',
+                                        transform: 'translate(-50%, -50%)'
+                                    }}
+                                />
+                                <Background color='#aaa' gap={16} />
+                                <AddNodes nodesData={getNodesApi.data} node={selectedNode} />
+                                <EditNodes
                                     nodes={nodes}
                                     edges={edges}
-                                    onNodesChange={onNodesChange}
-                                    onNodeDoubleClick={onNodeDoubleClick}
-                                    onEdgesChange={onEdgesChange}
-                                    onDrop={onDrop}
-                                    onDragOver={onDragOver}
-                                    onNodeDragStop={setDirty}
-                                    nodeTypes={nodeTypes}
-                                    edgeTypes={edgeTypes}
-                                    onConnect={onConnect}
-                                    onInit={setRfInstance}
-                                    fitView
+                                    node={selectedNode}
+                                    workflow={workflow}
+                                    onNodeLabelUpdate={onNodeLabelUpdate}
+                                    onNodeValuesUpdate={onNodeValuesUpdate}
+                                />
+                                <Fab
+                                    sx={{ position: 'absolute', right: 20, top: 20 }}
+                                    size='small'
+                                    color='warning'
+                                    aria-label='test'
+                                    title='Test Workflow'
+                                    disabled={isTestingWorkflow}
+                                    onClick={handleTestWorkflow}
                                 >
-                                    <MiniMap
-                                        nodeStrokeColor={() => theme.palette.primary.main}
-                                        nodeColor={() => theme.palette.primary.main}
-                                        nodeBorderRadius={2}
-                                    />
-                                    <Controls
-                                        style={{
-                                            display: 'flex',
-                                            flexDirection: 'row',
-                                            left: '50%',
-                                            transform: 'translate(-50%, -50%)'
+                                    {<IconBolt />}
+                                </Fab>
+                                {isTestingWorkflow && (
+                                    <CircularProgress
+                                        size={50}
+                                        sx={{
+                                            color: theme.palette.warning.dark,
+                                            position: 'absolute',
+                                            right: 15,
+                                            top: 15
                                         }}
                                     />
-                                    <Background color='#aaa' gap={16} />
-                                    <AddNodes nodesData={getNodesApi.data} node={selectedNode} />
-                                    <EditNodes
-                                        nodes={nodes}
-                                        edges={edges}
-                                        node={selectedNode}
-                                        workflow={workflow}
-                                        onNodeLabelUpdate={onNodeLabelUpdate}
-                                        onNodeValuesUpdate={onNodeValuesUpdate}
-                                    />
-                                    <Fab
-                                        sx={{ position: 'absolute', right: 20, top: 20 }}
-                                        size='small'
-                                        color='warning'
-                                        aria-label='test'
-                                        title='Test Workflow'
-                                        disabled={isTestingWorkflow}
-                                        onClick={handleTestWorkflow}
-                                    >
-                                        {<IconBolt />}
-                                    </Fab>
-                                    {isTestingWorkflow && (
-                                        <CircularProgress
-                                            size={50}
-                                            sx={{
-                                                color: theme.palette.warning.dark,
-                                                position: 'absolute',
-                                                right: 15,
-                                                top: 15
-                                            }}
-                                        />
-                                    )}
-                                </ReactFlow>
-                            </div>
-                        </ReactFlowProvider>
+                                )}
+                            </ReactFlow>
+                        </div>
                     </div>
                 </Box>
                 <ConfirmDialog />

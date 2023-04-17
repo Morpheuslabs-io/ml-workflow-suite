@@ -172,6 +172,7 @@ export interface INodeProperties {
     description?: string
     version: number
     icon?: string
+    category: string
     incoming: number
     outgoing: number
 }
@@ -182,7 +183,7 @@ export interface INode extends INodeProperties {
     networks?: INodeParams[]
     inputParameters?: INodeParams[]
     loadMethods?: {
-        [key: string]: (nodeData: INodeData, dbCollection?: IDbCollection) => Promise<INodeOptionsValue[]>
+        [key: string]: (nodeData: INodeData, dbCollection?: IDbCollection, apiKeys?: ICommonObject[]) => Promise<INodeOptionsValue[]>
     }
     webhookMethods?: {
         createWebhook: (nodeData: INodeData, webhookFullUrl: string) => Promise<string | undefined>
