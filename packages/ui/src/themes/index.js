@@ -18,7 +18,7 @@ export const theme = (customization) => {
 
     const themeOption = {
         colors: color,
-        heading: color.grey50,
+        heading: color.grey900,
         paper: color.paper,
         backgroundDefault: color.paper,
         background: color.primaryLight,
